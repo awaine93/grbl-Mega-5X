@@ -25,9 +25,39 @@
 
 static float spindle_pwm_gradient; // Precalulated value to speed up rpm to PWM conversions.
 
+#ifdef SPINDLE_BTS7960_ON_D44_D45
+  // BTS7960 H-bridge: M3/CW drives D45 (R_PWM/OCR5B), M4/CCW drives D44 (L_PWM/OCR5C).
+  // The inactive channel is always 0. Cached here because spindle_set_speed()
+  // runs in the stepper ISR and must not switch direction itself.
+  static uint8_t spindle_bts7960_direction = SPINDLE_STATE_DISABLE;
+#endif
+
 
 void spindle_init()
 {
+  #ifdef SPINDLE_BTS7960_ON_D44_D45
+    // BTS7960 dual-PWM on Timer5. Coast on stop (both PWM=0, R_EN/L_EN tied HIGH).
+    // Force both PWM outputs off first to avoid a flash on either bridge side.
+    SPINDLE_TCCRA_REGISTER &= ~((1<<SPINDLE_R_COMB_BIT) | (1<<SPINDLE_L_COMB_BIT));
+    SPINDLE_R_OCR_REGISTER = 0;
+    SPINDLE_L_OCR_REGISTER = 0;
+    // Configure both PWM pins as outputs.
+    SPINDLE_R_PWM_DDR |= (1<<SPINDLE_R_PWM_BIT); // D45 (PL4) = R_PWM
+    SPINDLE_L_PWM_DDR |= (1<<SPINDLE_L_PWM_BIT); // D44 (PL5) = L_PWM
+    // Configure Timer5: 1/8 prescaler, 16-bit Fast PWM, TOP in OCR5A.
+    // NOTE: COM5A bits are left cleared so D46 (OCR5A/Z-step) stays digital-only.
+    SPINDLE_TCCRA_REGISTER = SPINDLE_TCCRA_INIT_MASK;
+    SPINDLE_TCCRB_REGISTER = SPINDLE_TCCRB_INIT_MASK;
+    SPINDLE_OCRA_REGISTER = SPINDLE_OCRA_TOP_VALUE;
+    // Keep legacy enable/direction pins as outputs for enable handling and
+    // debug visibility (D5 mirrors direction, D4 is the enable output).
+    SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT);
+    SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT);
+    spindle_bts7960_direction = SPINDLE_STATE_DISABLE;
+    // Calculate gradient rpm to PWM to speed up conversions.
+    spindle_pwm_gradient = SPINDLE_PWM_RANGE/(settings.rpm_max - settings.rpm_min);
+    spindle_stop();
+  #else
   #ifdef SEPARATE_SPINDLE_LASER_PIN
     if (settings.flags & BITFLAG_LASER_MODE) {
       // In laser mode, spindle routines use laser pin output
@@ -57,11 +87,25 @@ void spindle_init()
     }
   #endif
   spindle_stop();
+  #endif // SPINDLE_BTS7960_ON_D44_D45
 }
 
 
 uint8_t spindle_get_state()
 {
+  #ifdef SPINDLE_BTS7960_ON_D44_D45
+    // Running iff either bridge side is actively driven (COM set) plus enable asserted.
+    uint8_t driving = (SPINDLE_TCCRA_REGISTER & ((1<<SPINDLE_R_COMB_BIT) | (1<<SPINDLE_L_COMB_BIT)));
+    #ifdef INVERT_SPINDLE_ENABLE_PIN
+      if (driving && bit_isfalse(SPINDLE_ENABLE_PORT,(1<<SPINDLE_ENABLE_BIT))) {
+    #else
+      if (driving && bit_istrue(SPINDLE_ENABLE_PORT,(1<<SPINDLE_ENABLE_BIT))) {
+    #endif
+      if (spindle_bts7960_direction == SPINDLE_STATE_CCW) { return(SPINDLE_STATE_CCW); }
+      if (spindle_bts7960_direction == SPINDLE_STATE_CW) { return(SPINDLE_STATE_CW); }
+    }
+    return(SPINDLE_STATE_DISABLE);
+  #else
   #ifdef SEPARATE_SPINDLE_LASER_PIN
     if (settings.flags & BITFLAG_LASER_MODE) {
       if (LASER_TCCRA_REGISTER & (1<<LASER_COMB_BIT)) {
@@ -87,7 +131,8 @@ uint8_t spindle_get_state()
   #ifdef SEPARATE_SPINDLE_LASER_PIN
     }
   #endif
-	return(SPINDLE_STATE_DISABLE);
+ 	return(SPINDLE_STATE_DISABLE);
+  #endif // SPINDLE_BTS7960_ON_D44_D45
 }
 
 
@@ -96,6 +141,18 @@ uint8_t spindle_get_state()
 // Called by spindle_init(), spindle_set_speed(), spindle_set_state(), and mc_reset().
 void spindle_stop()
 {
+  #ifdef SPINDLE_BTS7960_ON_D44_D45
+    // Coast: both bridge sides off, both duties zero. Never brake (no shoot-through risk).
+    SPINDLE_TCCRA_REGISTER &= ~((1<<SPINDLE_R_COMB_BIT) | (1<<SPINDLE_L_COMB_BIT));
+    SPINDLE_R_OCR_REGISTER = 0;
+    SPINDLE_L_OCR_REGISTER = 0;
+    spindle_bts7960_direction = SPINDLE_STATE_DISABLE;
+    #ifdef INVERT_SPINDLE_ENABLE_PIN
+      SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);  // Set pin to high
+    #else
+      SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT); // Set pin to low
+    #endif
+  #else
   #ifdef SEPARATE_SPINDLE_LASER_PIN
     if (settings.flags & BITFLAG_LASER_MODE) {
       LASER_TCCRA_REGISTER &= ~(1<<LASER_COMB_BIT); // Disable PWM. Output voltage is zero.
@@ -110,6 +167,7 @@ void spindle_stop()
   #ifdef SEPARATE_SPINDLE_LASER_PIN
     }
   #endif
+  #endif // SPINDLE_BTS7960_ON_D44_D45
 }
 
 
@@ -117,6 +175,48 @@ void spindle_stop()
 // and stepper ISR. Keep routine small and efficient.
 void spindle_set_speed(uint16_t pwm_value)
 {
+  #ifdef SPINDLE_BTS7960_ON_D44_D45
+    // ISR-safe: magnitude only, direction comes from the cached state set by
+    // spindle_set_state(). The inactive side is always forced to zero first,
+    // so both sides can never be driven at once.
+    if (pwm_value == SPINDLE_PWM_OFF_VALUE) {
+      #ifdef SPINDLE_ENABLE_OFF_WITH_ZERO_SPEED
+        spindle_stop();
+      #else
+        SPINDLE_TCCRA_REGISTER &= ~((1<<SPINDLE_R_COMB_BIT) | (1<<SPINDLE_L_COMB_BIT));
+        SPINDLE_R_OCR_REGISTER = 0;
+        SPINDLE_L_OCR_REGISTER = 0;
+      #endif
+    } else if (spindle_bts7960_direction == SPINDLE_STATE_CCW) {
+      SPINDLE_R_OCR_REGISTER = 0; // L side active: park R at zero first.
+      SPINDLE_TCCRA_REGISTER &= ~(1<<SPINDLE_R_COMB_BIT);
+      SPINDLE_L_OCR_REGISTER = pwm_value;
+      SPINDLE_TCCRA_REGISTER |= (1<<SPINDLE_L_COMB_BIT);
+      #ifdef SPINDLE_ENABLE_OFF_WITH_ZERO_SPEED
+        #ifdef INVERT_SPINDLE_ENABLE_PIN
+          SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT);
+        #else
+          SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);
+        #endif
+      #endif
+    } else if (spindle_bts7960_direction == SPINDLE_STATE_CW) {
+      SPINDLE_L_OCR_REGISTER = 0; // R side active: park L at zero first.
+      SPINDLE_TCCRA_REGISTER &= ~(1<<SPINDLE_L_COMB_BIT);
+      SPINDLE_R_OCR_REGISTER = pwm_value;
+      SPINDLE_TCCRA_REGISTER |= (1<<SPINDLE_R_COMB_BIT);
+      #ifdef SPINDLE_ENABLE_OFF_WITH_ZERO_SPEED
+        #ifdef INVERT_SPINDLE_ENABLE_PIN
+          SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT);
+        #else
+          SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);
+        #endif
+      #endif
+    } else {
+      SPINDLE_TCCRA_REGISTER &= ~((1<<SPINDLE_R_COMB_BIT) | (1<<SPINDLE_L_COMB_BIT));
+      SPINDLE_R_OCR_REGISTER = 0;
+      SPINDLE_L_OCR_REGISTER = 0;
+    }
+  #else
   #ifdef SEPARATE_SPINDLE_LASER_PIN
     if (settings.flags & BITFLAG_LASER_MODE) {
       LASER_OCR_REGISTER = pwm_value; // Set PWM output level.
@@ -157,6 +257,7 @@ void spindle_set_speed(uint16_t pwm_value)
   #ifdef SEPARATE_SPINDLE_LASER_PIN
     }
   #endif
+  #endif // SPINDLE_BTS7960_ON_D44_D45
 }
 
 
@@ -270,6 +371,39 @@ void spindle_set_speed(uint16_t pwm_value)
 void spindle_set_state(uint8_t state, float rpm)
 {
   if (sys.abort) { return; } // Block during abort.
+  #ifdef SPINDLE_BTS7960_ON_D44_D45
+    if (state == SPINDLE_DISABLE) {
+      sys.spindle_speed = 0.0;
+      spindle_stop(); // Coasts, clears cached direction.
+    } else {
+      uint8_t new_direction = (state == SPINDLE_ENABLE_CW) ? SPINDLE_STATE_CW : SPINDLE_STATE_CCW;
+      if ((spindle_bts7960_direction != SPINDLE_STATE_DISABLE) &&
+          (new_direction != spindle_bts7960_direction)) {
+        // Direction reversal: break-before-make. Both sides off + short deadtime
+        // so the bridge never sees both sides driven. Non-ISR context only.
+        SPINDLE_TCCRA_REGISTER &= ~((1<<SPINDLE_R_COMB_BIT) | (1<<SPINDLE_L_COMB_BIT));
+        SPINDLE_R_OCR_REGISTER = 0;
+        SPINDLE_L_OCR_REGISTER = 0;
+        _delay_ms(2);
+      }
+      spindle_bts7960_direction = new_direction;
+      // Mirror direction on D5 for scope/debug; motor direction is the PWM channel.
+      if (new_direction == SPINDLE_STATE_CW) {
+        SPINDLE_DIRECTION_PORT &= ~(1<<SPINDLE_DIRECTION_BIT);
+      } else {
+        SPINDLE_DIRECTION_PORT |= (1<<SPINDLE_DIRECTION_BIT);
+      }
+      // NOTE: no laser-mode M4-as-off hack in BTS mode; M4 must spin (CCW).
+      spindle_set_speed(spindle_compute_pwm_value(rpm));
+      #ifndef SPINDLE_ENABLE_OFF_WITH_ZERO_SPEED
+        #ifdef INVERT_SPINDLE_ENABLE_PIN
+          SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT);
+        #else
+          SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);
+        #endif
+      #endif
+    }
+  #else
   if (state == SPINDLE_DISABLE) { // Halt or set spindle direction and rpm.
   
     sys.spindle_speed = 0.0;
@@ -284,9 +418,11 @@ void spindle_set_state(uint8_t state, float rpm)
     }
 
     // NOTE: Assumes all calls to this function is when Grbl is not moving or must remain off.
+    #ifndef SPINDLE_BTS7960_ON_D44_D45
     if (settings.flags & BITFLAG_LASER_MODE) { 
       if (state == SPINDLE_ENABLE_CCW) { rpm = 0.0; } // TODO: May need to be rpm_min*(100/MAX_SPINDLE_SPEED_OVERRIDE);
     }
+    #endif
     spindle_set_speed(spindle_compute_pwm_value(rpm));
 
     #ifndef SPINDLE_ENABLE_OFF_WITH_ZERO_SPEED
@@ -298,6 +434,7 @@ void spindle_set_state(uint8_t state, float rpm)
     #endif
   
   }
+  #endif // SPINDLE_BTS7960_ON_D44_D45
   
   sys.report_ovr_counter = 0; // Set to report change immediately
 }

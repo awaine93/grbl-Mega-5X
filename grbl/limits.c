@@ -40,7 +40,9 @@ void limits_init()
   MIN_LIMIT_DDR(3) &= ~(1<<MIN_LIMIT_BIT(3));
   #endif
   #if N_AXIS > 4
+  #ifndef SPINDLE_BTS7960_ON_D44_D45
   MIN_LIMIT_DDR(4) &= ~(1<<MIN_LIMIT_BIT(4));
+  #endif
   #endif
   #if N_AXIS > 5
   MIN_LIMIT_DDR(5) &= ~(1<<MIN_LIMIT_BIT(5));
@@ -66,7 +68,9 @@ void limits_init()
       MIN_LIMIT_PORT(3) &= ~(1<<MIN_LIMIT_BIT(3)); // Normal low operation. Requires external pull-down.
     #endif
     #if N_AXIS > 4
-      MIN_LIMIT_PORT(4) &= ~(1<<MIN_LIMIT_BIT(4)); // Normal low operation. Requires external pull-down.
+      #ifndef SPINDLE_BTS7960_ON_D44_D45
+        MIN_LIMIT_PORT(4) &= ~(1<<MIN_LIMIT_BIT(4)); // Normal low operation. Requires external pull-down.
+      #endif
     #endif
     #if N_AXIS > 5
       MIN_LIMIT_PORT(5) &= ~(1<<MIN_LIMIT_BIT(5)); // Normal low operation. Requires external pull-down.
@@ -91,7 +95,9 @@ void limits_init()
       MIN_LIMIT_PORT(3) |= (1<<MIN_LIMIT_BIT(3));  // Enable internal pull-up resistors. Normal high operation.
     #endif
     #if N_AXIS > 4
-      MIN_LIMIT_PORT(4) |= (1<<MIN_LIMIT_BIT(4));  // Enable internal pull-up resistors. Normal high operation.
+      #ifndef SPINDLE_BTS7960_ON_D44_D45
+        MIN_LIMIT_PORT(4) |= (1<<MIN_LIMIT_BIT(4));  // Enable internal pull-up resistors. Normal high operation.
+      #endif
     #endif
     #if N_AXIS > 5
       MIN_LIMIT_PORT(5) |= (1<<MIN_LIMIT_BIT(5));  // Enable internal pull-up resistors. Normal high operation.
@@ -108,6 +114,14 @@ void limits_init()
     #if N_AXIS > 5
       MAX_LIMIT_PORT(5) |= (1<<MAX_LIMIT_BIT(5));  // Enable internal pull-up resistors. Normal high operation.
     #endif
+  #endif
+  #ifdef SPINDLE_BTS7960_ON_D44_D45
+    // BTS7960 L_PWM (M4/CCW) lives on D44/PL5, shared with the B-min limit input.
+    // limits_init() runs after spindle_init() at boot and again on settings/homing
+    // paths, so re-assert D44 as an output here. NOTE: the B-min limit switch on
+    // D44 is unavailable in BTS7960 mode — do not enable B homing/hard limits.
+    SPINDLE_L_PWM_DDR |= (1<<SPINDLE_L_PWM_BIT);
+    #warning "SPINDLE_BTS7960_ON_D44_D45: B-min limit on D44 unavailable (L_PWM output)."
   #endif
 }
 

@@ -327,7 +327,48 @@
   //  45  OCR5B
   //  46  OCR5A
 
-  #if defined(SPINDLE_PWM_ON_D8)
+  #if defined(SPINDLE_BTS7960_ON_D44_D45)
+
+    // BTS7960 dual-PWM spindle on Timer5 (unused by Grbl otherwise).
+    // D45 (PL4/OCR5B) = R_PWM for M3/CW, D44 (PL5/OCR5C) = L_PWM for M4/CCW.
+    // R_EN/L_EN are tied HIGH in hardware (or to D4 enable). M5 coasts.
+    // NOTE: D44 is shared with the 5th-axis (B) MIN limit input (see below).
+    // In BTS7960 mode limits_init() leaves D44 as a PWM output, so the B-min
+    // limit switch on D44 is UNAVAILABLE — do not enable B homing/hard limits.
+    // OCR5A (D46) is used only as TOP storage; COM5A bits stay cleared so
+    // no PWM appears on D46 (Z step pin, digital only).
+    #define SPINDLE_PWM_MAX_VALUE     1024.0 // ~1.9 kHz PWM at 1/8 prescaler, TOP 0x400
+    #ifndef SPINDLE_PWM_MIN_VALUE
+      #define SPINDLE_PWM_MIN_VALUE   1   // Must be greater than zero.
+    #endif
+    #define SPINDLE_PWM_OFF_VALUE     0
+    #define SPINDLE_PWM_RANGE         (SPINDLE_PWM_MAX_VALUE-SPINDLE_PWM_MIN_VALUE)
+
+    // Shared Timer5 registers (both channels, same frequency/phase).
+    #define SPINDLE_TCCRA_REGISTER    TCCR5A
+    #define SPINDLE_TCCRB_REGISTER    TCCR5B
+
+    // 1/8 Prescaler, 16-bit Fast PWM mode 14 (TOP = OCR5A, same as D8 setup on Timer4).
+    #define SPINDLE_TCCRA_INIT_MASK ((1<<WGM50) | (1<<WGM51))
+    #define SPINDLE_TCCRB_INIT_MASK ((1<<WGM52) | (1<<WGM53) | (1<<CS51))
+    #define SPINDLE_OCRA_REGISTER   OCR5A
+    #define SPINDLE_OCRA_TOP_VALUE  0x400
+
+    // R channel (M3/CW): Digital Pin 45
+    #define SPINDLE_R_OCR_REGISTER    OCR5B
+    #define SPINDLE_R_COMB_BIT        COM5B1
+    #define SPINDLE_R_PWM_DDR         DDRL
+    #define SPINDLE_R_PWM_PORT        PORTL
+    #define SPINDLE_R_PWM_BIT         4 // MEGA2560 Digital Pin 45 (PL4)
+
+    // L channel (M4/CCW): Digital Pin 44
+    #define SPINDLE_L_OCR_REGISTER    OCR5C
+    #define SPINDLE_L_COMB_BIT        COM5C1
+    #define SPINDLE_L_PWM_DDR         DDRL
+    #define SPINDLE_L_PWM_PORT        PORTL
+    #define SPINDLE_L_PWM_BIT         5 // MEGA2560 Digital Pin 44 (PL5)
+
+  #elif defined(SPINDLE_PWM_ON_D8)
 
     // Set Timer up to use TIMER4B which is attached to Digital Pin 8 - Ramps 1.4 12v output with heat sink
     #define SPINDLE_PWM_MAX_VALUE     1024.0 // Translates to about 1.9 kHz PWM frequency at 1/8 prescaler
@@ -409,7 +450,7 @@
     #define SPINDLE_PWM_BIT   6 // MEGA2560 Digital Pin 9
 
   #else
-    #error "You must define SPINDLE_PWM_ON_D8 or SPINDLE_PWM_ON_D6 or SPINDLE_PWM_ON_D9 in config.h!"
+    #error "You must define SPINDLE_PWM_ON_D8 or SPINDLE_PWM_ON_D6 or SPINDLE_PWM_ON_D9 or SPINDLE_BTS7960_ON_D44_D45 in config.h!"
   #endif
 
 
