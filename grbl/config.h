@@ -119,10 +119,27 @@
 // SPINDLE_PWM_ON_D8  => 0-12v 16 bits PWM on RAMPS D8 (default)
 // SPINDLE_PWM_ON_D9  => 0-12v 8 bits PWM on RAMPS D9
 // SPINDLE_PWM_ON_D6  => 0-5v 8bits PWM on RAMPS Servo 2 signal (Mega 2560 D6)
-// Uncomment the line which correspond to your hardware
-#define SPINDLE_PWM_ON_D8
+// SPINDLE_BTS7960_ON_D44_D45 => dual PWM for BTS7960 H-bridge:
+//   D45 (PL4/OCR5B) = R_PWM (M3/CW), D44 (PL5/OCR5C) = L_PWM (M4/CCW)
+//   Timer5 16-bit, TOP 0x400 (~1.9kHz at 1/8 prescaler). R_EN/L_EN tie HIGH
+//   (or to D4 enable). M5 coasts (both PWM=0).
+// Uncomment the line(s) which correspond to your hardware. Only one mode at a time.
+//#define SPINDLE_PWM_ON_D8
 //#define SPINDLE_PWM_ON_D6
 //#define SPINDLE_PWM_ON_D9
+#define SPINDLE_BTS7960_ON_D44_D45
+
+#if defined(SPINDLE_BTS7960_ON_D44_D45)
+  #if defined(SPINDLE_PWM_ON_D8) || defined(SPINDLE_PWM_ON_D6) || defined(SPINDLE_PWM_ON_D9)
+    #error "SPINDLE_BTS7960_ON_D44_D45 is exclusive: comment out SPINDLE_PWM_ON_Dx in config.h!"
+  #endif
+  #ifdef SEPARATE_SPINDLE_LASER_PIN
+    #error "SPINDLE_BTS7960_ON_D44_D45 is not compatible with SEPARATE_SPINDLE_LASER_PIN."
+  #endif
+  #ifdef ENABLE_PIECEWISE_LINEAR_SPINDLE
+    #error "SPINDLE_BTS7960_ON_D44_D45 is not compatible with ENABLE_PIECEWISE_LINEAR_SPINDLE."
+  #endif
+#endif
 
 // Spindle PWM signal inversion:
 // In case of particular electronics, it may be necessary to invert the values
