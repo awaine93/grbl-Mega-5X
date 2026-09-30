@@ -332,6 +332,9 @@
     // BTS7960 dual-PWM spindle on Timer5 (unused by Grbl otherwise).
     // D45 (PL4/OCR5B) = R_PWM for M3/CW, D44 (PL5/OCR5C) = L_PWM for M4/CCW.
     // R_EN/L_EN are tied HIGH in hardware (or to D4 enable). M5 coasts.
+    // NOTE: D44 is shared with the 5th-axis (B) MIN limit input (see below).
+    // In BTS7960 mode limits_init() leaves D44 as a PWM output, so the B-min
+    // limit switch on D44 is UNAVAILABLE — do not enable B homing/hard limits.
     // OCR5A (D46) is used only as TOP storage; COM5A bits stay cleared so
     // no PWM appears on D46 (Z step pin, digital only).
     #define SPINDLE_PWM_MAX_VALUE     1024.0 // ~1.9 kHz PWM at 1/8 prescaler, TOP 0x400
