@@ -26,17 +26,28 @@
 // "no tool" (skip load after unload).
 #define TOOL_CHANGE_EMPTY 0 // Tool number representing an empty spindle.
 
-// Tool load cycle parameters. Applied to all slots. Units: mm, mm/min, seconds, rpm.
-#define TOOL_LOAD_Z (-48.0f) // Plunge depth in work coordinates.
-#define TOOL_LOAD_FEED 100.0f // Plunge feed rate.
-#define TOOL_LOAD_RPM_LOW 200.0f // Slow rotation while seating the tool.
-#define TOOL_LOAD_RPM_HIGH 1000.0f // Spin-up to tighten the holder.
+// Tool load cycle parameters. Applied to all slots. Units: mm, mm/min, seconds.
+// NOTE: TOOL_LOAD_FEED and TOOL_LOAD_RPM_* are NOT pitch matched yet (the ER11 nut is
+// M13x1, so F must equal RPM x 1.0). TOOL_LOAD_RPM_* is an S value, i.e. a PWM duty
+// under $30/$31, not a shaft speed. See doc/markdown/tool_change.md for the measurement
+// procedure and where to apply the tuned values.
+#define TOOL_LOAD_Z (-53.0f) // Final tool depth in work coordinates.
+#define TOOL_LOAD_Z_APPROACH (-40.0f) // Rapid stop height above TOOL_LOAD_Z.
+#define TOOL_LOAD_FEED 100.0f // DEFERRED: engagement feed rate, not pitch matched.
+#define TOOL_LOAD_RPM_LOW 100.0f // DEFERRED: slow rotation S value while seating.
+#define TOOL_LOAD_RPM_HIGH 1000.0f // Full speed S value to tighten the holder.
 #define TOOL_LOAD_DWELL 1.0f // Dwell after each speed change.
 
 // Runs the complete M6 tool change cycle: unload current tool, load requested tool,
-// probe check. wco[] is the work coordinate offset (WCS + G92 + tool length offset)
-// used to convert work coordinates to absolute machine coordinates.
+// probe check. wco[] is the work coordinate offset (G5x + G92 only; the active tool
+// length offset is deliberately excluded so it cannot shift the rack) used to convert
+// work coordinates to absolute machine coordinates.
 // Returns STATUS_OK or an error status (reported as error:N to the sender).
 uint8_t tool_change_cycle(uint8_t tool, float *wco);
+
+// Returns the tool currently held in the spindle (TOOL_CHANGE_EMPTY if none).
+// Used by the parser to reject M6 during error checking, before any block state is
+// applied. Read-only: does not change any state.
+uint8_t tool_change_current_tool(void);
 
 #endif

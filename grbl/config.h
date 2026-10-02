@@ -524,7 +524,7 @@
 // Tool rack slot positions in work coordinates (mm), valid after homing and zero reset.
 // Index 0 = T1 ... index 4 = T5. First value = X, second value = Y.
 static const float tool_slot_xy[TOOL_CHANGE_SLOTS][2] = {
-  { 276.0f,   6.0f }, // T1
+  { 276.0f,   5.0f }, // T1
   { 276.0f,  33.5f }, // T2
   { 276.0f,  61.5f }, // T3
   { 276.0f,  89.0f }, // T4

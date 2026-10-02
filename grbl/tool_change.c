@@ -47,14 +47,24 @@ uint8_t tool_change_cycle(uint8_t tool, float *wco)
     if ((status = tool_load(tool, wco)) != STATUS_OK) { return(status); }
     if ((status = tool_probe_check(tool, wco)) != STATUS_OK) { return(status); }
   }
-  current_tool = tool;
+  // Check mode ($C) validates motion without moving, so don't record a load that
+  // never happened — otherwise the next real M6 is wrongly rejected as unload-pending.
+  if (sys.state != STATE_CHECK_MODE) { current_tool = tool; }
   return(STATUS_OK);
+}
+
+
+// Returns the tool currently in the spindle (TOOL_CHANGE_EMPTY if none).
+uint8_t tool_change_current_tool(void)
+{
+  return(current_tool);
 }
 
 
 // Loads tool (1..TOOL_CHANGE_SLOTS) from its rack slot into the spindle.
 // Sequence: stop spindle, retract to machine Z0, rapid to slot XY, slow rotation,
-// plunge to seat, dwell, spin-up, dwell, stop spindle, retract to machine Z0.
+// rapid to approach height, feed to seat the tool, dwell, spin-up, dwell, stop
+// spindle, retract to machine Z0.
 static uint8_t tool_load(uint8_t tool, float *wco)
 {
   const float *slot = tool_slot_xy[tool-1];
@@ -78,13 +88,21 @@ static uint8_t tool_load(uint8_t tool, float *wco)
   target[axis_y] = slot[1] + wco[axis_y];
   mc_line(target, &pl);
 
-  // M3 S200: slow rotation while engaging the tool holder.
+  // M3 S200: slow rotation, started before the approach so the spindle has the
+  // approach travel to reach speed before the thread engages.
   spindle_sync(SPINDLE_ENABLE_CW, TOOL_LOAD_RPM_LOW);
 
-  // G1 Z.. F100: plunge to seat the tool (work coordinate depth).
+  // G0 Z..: rapid to the approach height, still in air above the engagement zone.
   // NOTE: The stepper re-applies spindle PWM from every block's condition/spindle_speed
-  // (stepper.c), so blocks planned while the spindle must keep running must declare
-  // PL_COND_FLAG_SPINDLE_* + spindle_speed, or the spindle is forced off mid-cycle.
+  // (stepper.c), and a block with no spindle flag forces PWM off. So even this rapid
+  // must declare PL_COND_FLAG_SPINDLE_CW + spindle_speed or it kills the spindle.
+  memset(&pl, 0, sizeof(plan_line_data_t));
+  pl.condition = PL_COND_FLAG_RAPID_MOTION | PL_COND_FLAG_SPINDLE_CW;
+  pl.spindle_speed = TOOL_LOAD_RPM_LOW;
+  target[axis_z] = TOOL_LOAD_Z_APPROACH + wco[axis_z];
+  mc_line(target, &pl);
+
+  // G1 Z.. F100: feed through the engagement zone to the final tool depth.
   memset(&pl, 0, sizeof(plan_line_data_t));
   pl.feed_rate = TOOL_LOAD_FEED;
   pl.condition = PL_COND_FLAG_SPINDLE_CW;
