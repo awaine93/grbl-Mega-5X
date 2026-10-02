@@ -304,6 +304,10 @@ uint8_t gc_execute_line(char *line)
               gc_block.non_modal_command = int_value;
               break;
           #endif
+          case 6:
+            // M6 Tool change. T word is optional and may be in the same block.
+            dword_bit = MODAL_GROUP_M6;
+            break;
           default: FAIL(STATUS_GCODE_UNSUPPORTED_COMMAND); // [Unsupported M command]
         }
 
@@ -558,7 +562,10 @@ uint8_t gc_execute_line(char *line)
   // [5. Select tool ]: NOT SUPPORTED. Only tracks value. T is negative (done.) Not an integer. Greater than max tool value.
   // bit_false(value_dwords,dwbit(DWORD_T)); // NOTE: Single-meaning value word. Set at end of error-checking.
 
-  // [6. Change tool ]: N/A
+  // [6. Change tool ]: Tool number must fit a physical slot (0 = no tool).
+  if (bit_istrue(command_dwords,dwbit(MODAL_GROUP_M6))) {
+    if (gc_block.values.t > TOOL_CHANGE_SLOTS) { FAIL(STATUS_GCODE_MAX_VALUE_EXCEEDED); } // [Tool number > slots]
+  }
   // [7. Spindle control ]: N/A
   // [8. Coolant control ]: N/A
   // [9. Override control ]: Not supported except for a Grbl-only parking motion override control.
@@ -1353,10 +1360,23 @@ uint8_t gc_execute_line(char *line)
     pl_data->spindle_speed = gc_state.spindle_speed; // Record data for planner use.
   } // else { pl_data->spindle_speed = 0.0; } // Initialized as zero already.
 
-  // [5. Select tool ]: NOT SUPPORTED. Only tracks tool value.
+  // [5. Select tool ]: Only tracks tool value.
   gc_state.tool = gc_block.values.t;
 
-  // [6. Change tool ]: NOT SUPPORTED
+  // [6. Change tool ]: Run the tool change cycle. Pre-compute the work coordinate offset for
+  // the cycle so it can plan motion in absolute machine coordinates.
+  if (bit_istrue(command_dwords,dwbit(MODAL_GROUP_M6))) {
+    float wco[N_AXIS];
+    uint8_t status;
+    for (idx=0; idx<N_AXIS; idx++) {
+      wco[idx] = block_coord_system[idx] + gc_state.coord_offset[idx];
+    }
+    wco[TOOL_LENGTH_OFFSET_AXIS] += gc_state.tool_length_offset;
+    status = tool_change_cycle(gc_block.values.t, wco);
+    if (status != STATUS_OK) { return(status); }
+    protocol_buffer_synchronize(); // Cycle motions may still be buffered.
+    gc_sync_position(); // Parser position now matches machine position (slot XY, machine Z0).
+  }
 
   // [7. Spindle control ]:
   if (gc_state.modal.spindle != gc_block.modal.spindle) {
@@ -1626,14 +1646,12 @@ uint8_t gc_execute_line(char *line)
   - Evaluation of expressions
   - Variables
   - Override control (TBD)
-  - Tool changes
   - Switches
 
    (*) Indicates optional parameter, enabled through config.h and re-compile
    group 0 = {G92.2, G92.3} (Non modal: Cancel and re-enable G92 offsets)
    group 1 = {G81 - G89} (Motion modes: Canned cycles)
    group 4 = {M1} (Optional stop, ignored)
-   group 6 = {M6} (Tool change)
    group 7 = {G41, G42} cutter radius compensation (G40 is supported)
    group 8 = {G43} tool length offset (G43.1/G49 are supported)
    group 8 = {M7*} enable mist coolant (* Compile-option)

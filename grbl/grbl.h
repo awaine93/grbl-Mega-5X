@@ -64,6 +64,7 @@
 #include "stepper.h"
 #include "jog.h"
 #include "sleep.h"
+#include "tool_change.h"
 
 // ---------------------------------------------------------------------------------------
 // COMPILE-TIME ERROR CHECKING OF DEFINE VALUES:

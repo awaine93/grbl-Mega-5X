@@ -517,6 +517,20 @@
 // tool length offset value is subtracted from the current location.
 #define TOOL_LENGTH_OFFSET_AXIS AXIS_3 // Default z-axis. Valid values are AXIS_1, AXIS_2, or AXIS_3.
 
+// Number of physical tool slots for the M6 tool change cycle. Tool numbers T1-T5
+// select a slot; T0 means "no tool" (empty spindle).
+#define TOOL_CHANGE_SLOTS 5
+
+// Tool rack slot positions in work coordinates (mm), valid after homing and zero reset.
+// Index 0 = T1 ... index 4 = T5. First value = X, second value = Y.
+static const float tool_slot_xy[TOOL_CHANGE_SLOTS][2] = {
+  { 276.0f,   6.0f }, // T1
+  { 276.0f,  33.5f }, // T2
+  { 276.0f,  61.5f }, // T3
+  { 276.0f,  89.0f }, // T4
+  { 276.0f, 116.5f }  // T5
+};
+
 // Used by variable spindle output only. This forces the PWM output to a minimum duty cycle when enabled.
 // The PWM pin will still read 0V when the spindle is disabled. Most users will not need this option, but
 // it may be useful in certain scenarios. This minimum PWM settings coincides with the spindle rpm minimum

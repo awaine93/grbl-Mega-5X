@@ -47,8 +47,9 @@
 #define MODAL_GROUP_M8 13 // [M7,M8,M9] Coolant control
 #define MODAL_GROUP_M9 14 // [M56] Override control
 #define MODAL_GROUP_M10 15 // [M62-M65] Digital output -Non-modal
+#define MODAL_GROUP_M6 16 // [M6] Tool change
 #ifdef USE_OUTPUT_PWM
-  #define MODAL_GROUP_M11 16 // [M67-M68] Analog output -Non-modal
+  #define MODAL_GROUP_M11 17 // [M67-M68] Analog output -Non-modal
 #endif
 
 // Define command actions for within execution-type modal groups (motion, stopping, non-modal). Used
