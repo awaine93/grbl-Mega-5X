@@ -52,7 +52,7 @@
 // unpredictable behavior!
 //----------------------------------------------------------------------
 
-#define N_AXIS 5        // Number of axes (3 to 6)
+#define N_AXIS 3        // Number of axes (3 to 6)
 #define N_AXIS_LINEAR 3 // Number of linears axis, must be <= N_AXIS
 
 // Axis indexing and names
