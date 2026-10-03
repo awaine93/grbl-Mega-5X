@@ -565,10 +565,6 @@ uint8_t gc_execute_line(char *line)
   // [6. Change tool ]: Tool number must fit a physical slot (0 = no tool).
   if (bit_istrue(command_dwords,dwbit(MODAL_GROUP_M6))) {
     if (gc_block.values.t > TOOL_CHANGE_SLOTS) { FAIL(STATUS_GCODE_MAX_VALUE_EXCEEDED); } // [Tool number > slots]
-    // A tool is already loaded and the unload sequence is not implemented yet. Fail here
-    // in STEP 3, before STEP 4 applies any state, so a rejected block changes nothing.
-    // NOTE: remove once tool_unload() is implemented.
-    if (tool_change_current_tool() != TOOL_CHANGE_EMPTY) { FAIL(STATUS_TOOL_CHANGE_NOT_READY); }
   }
   // [7. Spindle control ]: N/A
   // [8. Coolant control ]: N/A
@@ -1370,17 +1366,22 @@ uint8_t gc_execute_line(char *line)
   // [6. Change tool ]: Run the tool change cycle. Pre-compute the work coordinate offset for
   // the cycle so it can plan motion in absolute machine coordinates. The active tool length
   // offset is deliberately excluded: it describes where a tool's tip is, not where the rack
-  // is, and leaving it in would shift the rack depth by the tool length.
+  // is, and leaving it in would shift the rack depth by the tool length. block_coord_system
+  // is passed as well because the cycle's probe step has to rebuild the G92 offset.
   if (bit_istrue(command_dwords,dwbit(MODAL_GROUP_M6))) {
     float wco[N_AXIS];
     uint8_t status;
     for (idx=0; idx<N_AXIS; idx++) {
       wco[idx] = block_coord_system[idx] + gc_state.coord_offset[idx];
     }
-    status = tool_change_cycle(gc_block.values.t, wco);
+    status = tool_change_cycle(gc_block.values.t, wco, block_coord_system);
     if (status != STATUS_OK) { return(status); }
     protocol_buffer_synchronize(); // Cycle motions may still be buffered.
-    gc_sync_position(); // Parser position now matches machine position (slot XY, machine Z0).
+    gc_sync_position(); // Parser position now matches machine position (slot XY, safe Z).
+    // The cycle always ends with the spindle stopped. Force the block's spindle modal
+    // to agree, otherwise [7] below would re-apply the pre-M6 M3/M4 and start the
+    // spindle again on the first motion after the tool change.
+    gc_block.modal.spindle = SPINDLE_DISABLE;
   }
 
   // [7. Spindle control ]:

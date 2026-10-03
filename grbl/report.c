@@ -741,6 +741,13 @@ void report_realtime_status()
     // Other debugs here...
   #endif
 
+  #ifdef REPORT_FIELD_LOADED_TOOL
+    // Tool physically held in the spindle (0 = empty). Not the same as the T word from
+    // $G, which only reports the selected tool. Non-standard field; GUIs ignore it.
+    printPgmString(PSTR("|TL:"));
+    print_uint8_base10(tool_change_current_tool());
+  #endif
+
   #ifdef REPORT_FIELD_WORK_COORD_OFFSET
     if (sys.report_wco_counter > 0) { sys.report_wco_counter--; }
     else {
@@ -839,10 +846,6 @@ void printDgState(uint8_t dg_state)
   if (dg_state  & DIGITAL_OUTPUT_STATE_P0) { serial_write('1'); } else {serial_write('0');}
 }
 
-
-#ifdef DEBUG
-
-// Report debug string on serial
 void report_debug_string(char *line)
 {
   printPgmString(PSTR("{debug("));
@@ -850,6 +853,10 @@ void report_debug_string(char *line)
   printPgmString(PSTR(")}"));
   report_util_line_feed();
 }
+#ifdef DEBUG
+
+// Report debug string on serial
+
 
 // Report debug int_8 and int_16 value
 // Those functions accept the variable's name string as optional argument

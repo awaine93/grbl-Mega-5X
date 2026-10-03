@@ -41,6 +41,7 @@
 #define STATUS_INVALID_JOG_COMMAND 16
 #define STATUS_SETTING_DISABLED_LASER 17
 #define STATUS_TOOL_CHANGE_NOT_READY 18
+#define STATUS_TOOL_PROBE_FAILED 19 // Tool change probe did not make contact.
 
 #define STATUS_GCODE_UNSUPPORTED_COMMAND 20
 #define STATUS_GCODE_MODAL_GROUP_VIOLATION 21
@@ -131,8 +132,9 @@ void report_build_info(char *line);
 void report_digital_status(uint8_t dg_state);
 void printDgState(uint8_t dg_state);
 
+void report_debug_string(char *line);
 #ifdef DEBUG
-  void report_debug_string(char *line);
+ 
   void report_debug_int_8(uint8_t val, ...);
   void report_debug_int_16(uint16_t val, ...);
 #endif

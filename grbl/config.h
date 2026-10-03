@@ -456,6 +456,9 @@
 #define REPORT_FIELD_WORK_COORD_OFFSET // Default enabled. Comment to disable.
 #define REPORT_FIELD_OVERRIDES // Default enabled. Comment to disable.
 #define REPORT_FIELD_LINE_NUMBERS // Default enabled. Comment to disable.
+#define REPORT_FIELD_LOADED_TOOL // Default enabled. Comment to disable. Reports |TL:n, the
+                                 // tool physically in the spindle (0 = none), which is not
+                                 // the same as the T word reported by $G.
 
 // Some status report data isn't necessary for realtime, only intermittently, because the values don't
 // change often. The following macros configures how many times a status report needs to be called before
